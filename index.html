@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Mini Doom Mobile</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#080808;font-family:Arial,sans-serif;touch-action:none}
+#game{display:block;width:100vw;height:100vh;background:#000}
+#hud{position:fixed;top:0;left:0;right:0;padding:10px 14px;color:#fff;font-weight:bold;text-shadow:2px 2px #000;display:flex;justify-content:space-between;z-index:3;pointer-events:none}
+#start{position:fixed;inset:0;background:rgba(0,0,0,.86);color:#fff;z-index:10;display:flex;align-items:center;justify-content:center;text-align:center;padding:25px}
+#start .box{max-width:380px}
+button{border:2px solid #fff;background:#8b160e;color:#fff;border-radius:10px;padding:14px 24px;font-size:20px;font-weight:bold}
+#joy{position:fixed;left:22px;bottom:25px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.3);z-index:5}
+#stick{position:absolute;width:55px;height:55px;left:37px;top:37px;border-radius:50%;background:rgba(255,255,255,.35)}
+#fire{position:fixed;right:24px;bottom:32px;width:88px;height:88px;border-radius:50%;z-index:5;background:rgba(180,25,15,.7);border:3px solid rgba(255,255,255,.65);color:white;font-size:18px;font-weight:bold}
+#look{position:fixed;right:0;top:70px;width:58%;height:55%;z-index:2}
+#msg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font-size:30px;font-weight:bold;text-align:center;text-shadow:3px 3px #000;z-index:8;display:none}
+.small{font-size:14px;opacity:.8;line-height:1.5}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud"><span>❤️ <b id="hp">100</b></span><span>🔫 <b id="ammo">60</b></span><span>☠️ <b id="score">0</b></span></div>
+<div id="joy"><div id="stick"></div></div>
+<div id="look"></div>
+<button id="fire">FIRE</button>
+<div id="msg"></div>
+<div id="start"><div class="box">
+<h1>MINI DOOM MOBILE</h1>
+<p>FPS bergaya retro yang dibuat khusus untuk layar HP.</p>
+<p class="small">Gerakkan joystick kiri • Geser area kanan untuk melihat • Tekan FIRE untuk menembak</p>
+<button id="startBtn">MULAI GAME</button>
+</div></div>
+
+<script>
+const c=document.getElementById('game'),ctx=c.getContext('2d');
+let W,H,DPR,started=false,over=false,win=false;
+function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*DPR;c.height=H*DPR;c.style.width=W+'px';c.style.height=H+'px';ctx.setTransform(DPR,0,0,DPR,0,0)}
+addEventListener('resize',resize);resize();
+
+const map=[
+"1111111111111111",
+"1000000000000001",
+"1011110111111101",
+"1000010100000101",
+"1111010101110101",
+"1000010001010001",
+"1011111101011111",
+"1000000101000001",
+"1011110101111101",
+"1000010100000001",
+"1011010111111101",
+"1000010000000101",
+"1011111111100101",
+"1000000000000001",
+"1111111111111111"
+];
+const MW=map[0].length,MH=map.length;
+let p={x:2.5,y:1.5,a:0,hp:100,ammo:60,score:0};
+let enemies=[];
+function reset(){
+ p={x:2.5,y:1.5,a:0,hp:100,ammo:60,score:0};
+ enemies=[
+  {x:12.5,y:1.5,hp:2,cd:0},{x:4.5,y:5.5,hp:2,cd:0},
+  {x:10.5,y:5.5,hp:2,cd:0},{x:7.5,y:9.5,hp:2,cd:0},
+  {x:12.5,y:11.5,hp:2,cd:0},{x:2.5,y:13.5,hp:2,cd:0}
+ ];
+ over=win=false; document.getElementById('msg').style.display='none'; updateHud();
+}
+function wall(x,y){return y<0||y>=MH||x<0||x>=MW||map[Math.floor(y)][Math.floor(x)]==='1'}
+function move(dx,dy){
+ let nx=p.x+dx,ny=p.y+dy;
+ if(!wall(nx,p.y))p.x=nx;
+ if(!wall(p.x,ny))p.y=ny;
+}
+function norm(a){return Math.atan2(Math.sin(a),Math.cos(a))}
+function lineClear(x1,y1,x2,y2){
+ let d=Math.hypot(x2-x1,y2-y1),n=Math.ceil(d*10);
+ for(let i=1;i<n;i++){let t=i/n;if(wall(x1+(x2-x1)*t,y1+(y2-y1)*t))return false}
+ return true;
+}
+function shoot(){
+ if(!started||over||win||p.ammo<=0)return;
+ p.ammo--; let best=null,bd=99;
+ for(const e of enemies){
+  if(e.hp<=0)continue;
+  let dx=e.x-p.x,dy=e.y-p.y,d=Math.hypot(dx,dy),ang=Math.abs(norm(Math.atan2(dy,dx)-p.a));
+  if(ang<0.13+0.28/d && d<bd && lineClear(p.x,p.y,e.x,e.y)){best=e;bd=d}
+ }
+ if(best){best.hp--; if(best.hp<=0)p.score+=100}
+ updateHud();
+ if(p.score>=600){win=true;showMsg("YOU WIN!<br><small>Semua musuh dikalahkan</small>")}
+}
+function enemyAI(dt){
+ for(const e of enemies){
+  if(e.hp<=0)continue;
+  let dx=p.x-e.x,dy=p.y-e.y,d=Math.hypot(dx,dy);
+  if(d>1.3){
+   let s=dt*0.55, nx=e.x+dx/d*s,ny=e.y+dy/d*s;
+   if(!wall(nx,e.y))e.x=nx;
+   if(!wall(e.x,ny))e.y=ny;
+  }
+  e.cd-=dt;
+  if(d<6&&lineClear(e.x,e.y,p.x,p.y)&&e.cd<=0){
+   p.hp-=8;e.cd=1.2;
+   if(p.hp<=0){p.hp=0;over=true;showMsg("GAME OVER<br><small>Tekan RESTART</small>")}
+  }
+ }
+}
+function showMsg(t){
+ const m=document.getElementById('msg');m.innerHTML=t+'<br><button onclick="location.reload()">RESTART</button>';m.style.display='block';
+}
+function updateHud(){
+ hp.textContent=p.hp;ammo.textContent=p.ammo;score.textContent=p.score;
+}
+function render(){
+ ctx.fillStyle='#050505';ctx.fillRect(0,0,W,H);
+ const fov=Math.PI/3, rays=Math.ceil(W/2), rw=W/rays;
+ for(let i=0;i<rays;i++){
+  let ra=p.a-fov/2+fov*i/rays,cos=Math.cos(ra),sin=Math.sin(ra),d=0,step=.025;
+  while(d<25&&!wall(p.x+cos*d,p.y+sin*d))d+=step;
+  d*=Math.cos(ra-p.a);let wh=Math.min(H*1.6,H/d),top=(H-wh)/2;
+  let shade=Math.max(25,190-d*12);
+  ctx.fillStyle=`rgb(${shade},${shade*.72},${shade*.58})`;
+  ctx.fillRect(i*rw,top,rw+1,wh);
+ }
+ // floor/ceiling overlays
+ ctx.fillStyle='rgba(0,0,0,.28)';ctx.fillRect(0,0,W,H/2);
+ ctx.fillStyle='rgba(0,0,0,.32)';ctx.fillRect(0,H/2,W,H/2);
+ // enemies sorted far to near
+ [...enemies].filter(e=>e.hp>0).sort((a,b)=>Math.hypot(b.x-p.x,b.y-p.y)-Math.hypot(a.x-p.x,a.y-p.y)).forEach(e=>{
+  let dx=e.x-p.x,dy=e.y-p.y,d=Math.hypot(dx,dy),ang=norm(Math.atan2(dy,dx)-p.a);
+  if(Math.abs(ang)>fov/2+.2||!lineClear(p.x,p.y,e.x,e.y))return;
+  let sx=W/2+Math.tan(ang)/(Math.tan(fov/2))*W/2, size=Math.min(H*1.1,H/d);
+  ctx.fillStyle='#c32a18';ctx.fillRect(sx-size*.25,H/2-size*.45,size*.5,size*.7);
+  ctx.fillStyle='#ffb000';ctx.fillRect(sx-size*.16,H/2-size*.28,size*.09,size*.09);ctx.fillRect(sx+size*.07,H/2-size*.28,size*.09,size*.09);
+  ctx.fillStyle='#32100d';ctx.fillRect(sx-size*.15,H/2+size*.05,size*.3,size*.08);
+ });
+ // weapon
+ ctx.fillStyle='#202020';ctx.fillRect(W/2-38,H-115,76,100);
+ ctx.fillStyle='#555';ctx.fillRect(W/2-16,H-150,32,70);
+ ctx.fillStyle='#111';ctx.fillRect(W/2-25,H-45,50,45);
+ ctx.strokeStyle='rgba(255,255,255,.7)';ctx.beginPath();ctx.moveTo(W/2-8,H/2);ctx.lineTo(W/2+8,H/2);ctx.moveTo(W/2,H/2-8);ctx.lineTo(W/2,H/2+8);ctx.stroke();
+}
+let last=performance.now(),joy={x:0,y:0},lookLast=null;
+function loop(t){
+ let dt=Math.min((t-last)/1000,.05);last=t;
+ if(started&&!over&&!win){
+  move(joy.x*dt*2.2,joy.y*dt*2.2);
+  enemyAI(dt);
+  updateHud();
+ }
+ render();requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+const joyEl=document.getElementById('joy'),stick=document.getElementById('stick');
+function joyMove(e){
+ let r=joyEl.getBoundingClientRect(),x=e.clientX-r.left-r.width/2,y=e.clientY-r.top-r.height/2,max=45,d=Math.hypot(x,y);
+ if(d>max){x=x/d*max;y=y/d*max}
+ stick.style.left=(37+x)+'px';stick.style.top=(37+y)+'px';
+ joy.x=x/max;joy.y=y/max;
+}
+joyEl.addEventListener('pointerdown',e=>{joyEl.setPointerCapture(e.pointerId);joyMove(e)});
+joyEl.addEventListener('pointermove',e=>{if(e.buttons)joyMove(e)});
+joyEl.addEventListener('pointerup',()=>{joy.x=joy.y=0;stick.style.left='37px';stick.style.top='37px'});
+const look=document.getElementById('look');
+look.addEventListener('pointerdown',e=>{lookLast=e.clientX;look.setPointerCapture(e.pointerId)});
+look.addEventListener('pointermove',e=>{if(lookLast!==null){p.a+=(e.clientX-lookLast)*.008;lookLast=e.clientX}});
+look.addEventListener('pointerup',()=>lookLast=null);
+document.getElementById('fire').addEventListener('pointerdown',e=>{e.preventDefault();shoot()});
+document.getElementById('startBtn').onclick=()=>{started=true;document.getElementById('start').style.display='none';reset()};
+</script>
+</body>
+</html>
